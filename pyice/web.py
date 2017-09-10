@@ -1,4 +1,4 @@
-import core
+from . import core
 
 running_servers = []
 

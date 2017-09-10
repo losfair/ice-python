@@ -2,8 +2,7 @@ import asyncio
 import uvloop
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-import web
-import web_async
+from pyice import web, web_async
 import threading
 import time
 
