@@ -6,7 +6,7 @@ class Server:
     def __init__(self):
         self.inst = core.lib.ice_create_server()
         self.dispatch_table = {
-            -1: DispatchInfo(self.default_endpoint)
+            -1: DispatchInfo("", self.default_endpoint)
         }
         self.started = False
         self.callback_handle = core.ffi.callback("AsyncEndpointHandler", self.async_endpoint_cb)
@@ -21,15 +21,29 @@ class Server:
         if self.started == False:
             print("Warning: Server leaked")
     
+    def require_not_started(self):
+        if self.started:
+            raise Exception("Server already started")
+    
+    def route(self, dispatch_info, flags = []):
+        self.require_not_started()
+
+        if not isinstance(dispatch_info, DispatchInfo):
+            raise Exception("DispatchInfo required")
+
+        ep = core.lib.ice_server_router_add_endpoint(self.inst, dispatch_info.path.encode())
+        for f in flags:
+            core.lib.ice_core_endpoint_set_flag(ep, f.encode(), True)
+
+        ep_id = core.lib.ice_core_endpoint_get_id(ep)
+
+        self.dispatch_table[ep_id] = dispatch_info
+    
     def listen(self, addr):
         self.require_not_started()
         self.started = True
         running_servers.append(self)
         core.lib.ice_server_listen(self.inst, addr.encode())
-    
-    def require_not_started(self):
-        if self.started:
-            raise Exception("Server already started")
 
     def async_endpoint_cb(self, id, call_info):
         req = Request(call_info)
@@ -39,16 +53,17 @@ class Server:
         req.create_response().set_status(404).set_body("Not found").send()
 
 class DispatchInfo:
-    def __init__(self, cb):
+    def __init__(self, path, cb):
         if not callable(cb):
             raise Exception("Callable required")
 
+        self.path = path
         self.callback = cb
     
     def call(self, req):
         try:
             self.callback(req)
-        except e as Exception:
+        except Exception as e:
             req.create_response().set_status(500).set_body(str(e)).send()
 
 class Request:
