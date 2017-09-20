@@ -1,4 +1,4 @@
-from . import web
+from . import web_v4 as web
 import asyncio
 import threading
 
