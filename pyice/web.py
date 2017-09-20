@@ -85,24 +85,15 @@ class Request:
     def __init__(self, ctx, req):
         self.context = ctx
         self.inst = req
-        self.valid = True
     
     def __del__(self):
-        if self.valid:
+        if self.inst != None:
             self.create_response().set_status(500).send()
 
-    def require_valid(self):
-        if self.valid == False:
-            raise Exception("Invalid request")
-
     def create_response(self):
-        self.require_valid()
         return Response(self)
     
     def send_response(self, resp):
-        self.require_valid()
-        self.valid = False
-
         core.lib.ice_http_server_endpoint_context_end_with_response(self.context, resp.take())
         self.context = None
         self.inst = None
@@ -111,32 +102,21 @@ class Response:
     def __init__(self, req):
         self.request = req
         self.inst = core.lib.ice_http_response_create()
-        self.valid = True
     
     def __del__(self):
-        if self.valid:
-            self.valid = False
+        if self.inst != None:
             core.lib.ice_http_response_destroy(self.inst)
     
-    def require_valid(self):
-        if self.valid == False:
-            raise Exception("Invalid response")
-    
     def take(self):
-        self.require_valid()
         inst = self.inst
         self.inst = None
-        self.valid = False
         return inst
     
     def set_status(self, status):
-        self.require_valid()
         core.lib.ice_http_response_set_status(self.inst, status)
         return self
     
     def set_body(self, body):
-        self.require_valid()
-
         if type(body) == str:
             body = body.encode()
         
@@ -144,5 +124,4 @@ class Response:
         return self
 
     def send(self):
-        self.require_valid()
         self.request.send_response(self)
