@@ -2,21 +2,36 @@ from . import core
 
 running_servers = []
 
-class Server:
+class ServerConfig:
     def __init__(self):
-        self.inst = core.lib.ice_create_server()
-        self.dispatch_table = {
-            -1: DispatchInfo("", self.default_endpoint)
-        }
-        self.started = False
-        self.callback_handle = core.ffi.callback("AsyncEndpointHandler", self.async_endpoint_cb)
-
-        core.lib.ice_server_disable_request_logging(self.inst)
-        core.lib.ice_server_set_async_endpoint_cb(
-            self.inst,
-            self.callback_handle
-        )
+        self.inst = core.lib.ice_http_server_config_create()
     
+    def __del__(self):
+        if self.inst != None:
+            core.lib.ice_http_server_config_destroy(self.inst)
+    
+    def take(self):
+        inst = self.inst
+        self.inst = None
+        return inst
+    
+    def set_num_executors(self, n):
+        core.lib.ice_http_server_config_set_num_executors(self.inst, n)
+        return self
+    
+    def set_listen_addr(self, addr):
+        core.lib.ice_http_server_config_set_listen_addr(self.inst, addr.encode())
+        return self
+
+class Server:
+    def __init__(self, cfg):
+        if not isinstance(cfg, ServerConfig):
+            raise Exception("Invalid server config")
+
+        self.inst = core.lib.ice_http_server_create(cfg.take())
+        self.started = False
+        self.callback_handles = [];
+
     def __del__(self):
         if self.started == False:
             print("Warning: Server leaked")
@@ -26,28 +41,28 @@ class Server:
             raise Exception("Server already started")
     
     def route(self, dispatch_info, flags = []):
-        self.require_not_started()
-
         if not isinstance(dispatch_info, DispatchInfo):
             raise Exception("DispatchInfo required")
 
-        ep = core.lib.ice_server_router_add_endpoint(self.inst, dispatch_info.path.encode())
-        for f in flags:
-            core.lib.ice_core_endpoint_set_flag(ep, f.encode(), True)
-
-        ep_id = core.lib.ice_core_endpoint_get_id(ep)
-
-        self.dispatch_table[ep_id] = dispatch_info
+        def this_target(ctx, req, call_with):
+            req = Request(ctx, req)
+            dispatch_info.call(req)
+        
+        handle = core.ffi.callback("IceHttpRouteCallback", this_target)
+        self.callback_handles.append(handle)
+        
+        rt = core.lib.ice_http_server_route_create(
+            dispatch_info.path.encode(),
+            handle,
+            core.ffi.NULL
+        )
+        core.lib.ice_http_server_add_route(self.inst, rt)
     
-    def listen(self, addr):
+    def listen(self):
         self.require_not_started()
         self.started = True
         running_servers.append(self)
-        core.lib.ice_server_listen(self.inst, addr.encode())
-
-    def async_endpoint_cb(self, id, call_info):
-        req = Request(call_info)
-        self.dispatch_table[id].call(req)
+        core.lib.ice_http_server_start(self.inst)
 
     def default_endpoint(self, req):
         req.create_response().set_status(404).set_body("Not found").send()
@@ -67,9 +82,9 @@ class DispatchInfo:
             req.create_response().set_status(500).set_body(str(e)).send()
 
 class Request:
-    def __init__(self, call_info):
-        self.call_info = call_info
-        self.inst = core.lib.ice_core_borrow_request_from_call_info(call_info)
+    def __init__(self, ctx, req):
+        self.context = ctx
+        self.inst = req
         self.valid = True
     
     def __del__(self):
@@ -79,40 +94,44 @@ class Request:
     def require_valid(self):
         if self.valid == False:
             raise Exception("Invalid request")
-    
+
     def create_response(self):
         self.require_valid()
-        
         return Response(self)
     
     def send_response(self, resp):
         self.require_valid()
-        resp.require_valid()
-
         self.valid = False
-        resp.valid = False
 
-        core.lib.ice_core_fire_callback(self.call_info, resp.inst)
-
+        core.lib.ice_http_server_endpoint_context_end_with_response(self.context, resp.take())
+        self.context = None
+        self.inst = None
 
 class Response:
     def __init__(self, req):
         self.request = req
-        self.inst = core.lib.ice_glue_create_response()
+        self.inst = core.lib.ice_http_response_create()
         self.valid = True
     
     def __del__(self):
         if self.valid:
             self.valid = False
-            core.lib.ice_glue_destroy_response(self.inst)
+            core.lib.ice_http_response_destroy(self.inst)
     
     def require_valid(self):
         if self.valid == False:
             raise Exception("Invalid response")
     
+    def take(self):
+        self.require_valid()
+        inst = self.inst
+        self.inst = None
+        self.valid = False
+        return inst
+    
     def set_status(self, status):
         self.require_valid()
-        core.lib.ice_glue_response_set_status(self.inst, status)
+        core.lib.ice_http_response_set_status(self.inst, status)
         return self
     
     def set_body(self, body):
@@ -120,8 +139,8 @@ class Response:
 
         if type(body) == str:
             body = body.encode()
-
-        core.lib.ice_glue_response_set_body(self.inst, body, len(body))
+        
+        core.lib.ice_http_response_set_body(self.inst, body, len(body))
         return self
 
     def send(self):

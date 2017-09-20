@@ -2,7 +2,8 @@ import asyncio
 import uvloop
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-from pyice import web, web_async
+from pyice import web_async
+from pyice import web
 import threading
 import time
 
@@ -16,7 +17,7 @@ def hello_world_threaded(req):
 async def hello_world_async(req):
     req.create_response().set_body("Hello world! (Async)").send()
 
-server = web.Server()
+server = web.Server(web.ServerConfig().set_num_executors(3).set_listen_addr("127.0.0.1:2716"))
 
 hello_world_target = web.DispatchInfo(
     "/hello_world",
@@ -36,7 +37,7 @@ hello_world_async_target = web_async.AsyncDispatchInfo(
 )
 server.route(hello_world_async_target)
 
-server.listen("127.0.0.1:2716")
+server.listen()
 
 while True:
     time.sleep(10000000)
