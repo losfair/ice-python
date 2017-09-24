@@ -6,3 +6,4 @@ except:
     pass
 
 from . import web
+from . import rpc
