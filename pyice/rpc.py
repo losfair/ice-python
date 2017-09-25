@@ -201,7 +201,10 @@ class ClientConnectionPool:
         ret = await target.call(method_name, params)
         if ret == None:
             with self.connections_lock:
-                self.connections.remove(target)
+                try:
+                    self.connections.remove(target)
+                except:
+                    pass
             return None
         else:
             return ret
