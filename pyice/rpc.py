@@ -1,4 +1,5 @@
 from . import core
+import asyncio
 
 class ServerConfig:
     def __init__(self):
@@ -77,7 +78,7 @@ class Client:
         if self.inst != None:
             core.lib.ice_rpc_client_destroy(self.inst)
 
-    def connect(self, cb):
+    def connect_with_callback(self, cb):
         cb_ctx = {}
         def target(conn, call_with):
             handle = cb_ctx["handle"]
@@ -100,6 +101,16 @@ class Client:
             core.ffi.NULL
         )
 
+    def connect(self):
+        fut = asyncio.Future()
+        loop = asyncio.get_event_loop()
+
+        def done_callback(conn):
+            loop.call_soon_threadsafe(lambda: fut.set_result(conn))
+
+        self.connect_with_callback(done_callback)
+        return fut
+
 class ClientConnection:
     def __init__(self, inst):
         self.inst = inst
@@ -117,7 +128,7 @@ class ClientConnection:
         core.lib.ice_rpc_client_connection_destroy(self.inst)
         self.inst = None
 
-    def call(self, method_name, params, cb):
+    def call_with_callback(self, method_name, params, cb):
         raw_params = core.ffi.new("IceRpcParam[" + str(len(params)) + "]")
         for i in range(len(params)):
             if params[i].borrowed or params[i].inst == None:
@@ -136,6 +147,16 @@ class ClientConnection:
             self.conn_call_cb_handle,
             cb_handle
         )
+
+    def call(self, method_name, params):
+        fut = asyncio.Future()
+        loop = asyncio.get_event_loop()
+
+        def done_callback(ret):
+            loop.call_soon_threadsafe(lambda: fut.set_result(ret))
+
+        self.call_with_callback(method_name, params, done_callback)
+        return fut
 
     def conn_call_cb(self, raw_borrowed_ret, cb_handle):
         cb = core.ffi.from_handle(cb_handle)

@@ -1,9 +1,10 @@
 from . import core
 
-try:
-    from . import web_async
-except:
-    pass
-
 from . import web
 from . import rpc
+
+try:
+    from . import web_async
+except Exception as e:
+    print(e)
+    pass
