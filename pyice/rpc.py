@@ -1,5 +1,6 @@
 from . import core
 import asyncio
+import random
 
 class ServerConfig:
     def __init__(self):
@@ -165,6 +166,38 @@ class ClientConnection:
             cb(None)
         else:
             cb(Param(raw_borrowed_ret, True).to_owned())
+
+class ClientConnectionPool:
+    def __init__(self, client, n = 16):
+        if not isinstance(client, Client):
+            raise TypeError("Invalid client")
+
+        self.client = client
+        self.n = n
+        self.connections = []
+
+    async def init(self):
+        self.connections = []
+        for _ in range(self.n):
+            conn = await self.client.connect()
+            if conn != None:
+                self.connections.append(conn)
+
+    async def call(self, method_name, params):
+        if len(self.connections) == 0:
+            await self.init()
+            if len(self.connections) == 0:
+                raise Exception("No available connections")
+
+        target_id = random.randint(0, len(self.connections) - 1)
+        target = self.connections[target_id]
+
+        ret = await target.call(method_name, params)
+        if ret == None:
+            del self.connections[target_id]
+            return None
+        else:
+            return ret
 
 class Param:
     def __init__(self, inst, borrowed = False):
