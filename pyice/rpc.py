@@ -1,6 +1,7 @@
 from . import core
 import asyncio
 import random
+import threading
 
 class ServerConfig:
     def __init__(self):
@@ -175,13 +176,17 @@ class ClientConnectionPool:
         self.client = client
         self.n = n
         self.connections = []
+        self.connections_lock = threading.Lock()
 
     async def init(self):
-        self.connections = []
+        connections = []
         for _ in range(self.n):
             conn = await self.client.connect()
             if conn != None:
-                self.connections.append(conn)
+                connections.append(conn)
+
+        with self.connections_lock:
+            self.connections = connections
 
     async def call(self, method_name, params):
         if len(self.connections) == 0:
@@ -189,12 +194,14 @@ class ClientConnectionPool:
             if len(self.connections) == 0:
                 raise Exception("No available connections")
 
-        target_id = random.randint(0, len(self.connections) - 1)
-        target = self.connections[target_id]
+        with self.connections_lock:
+            target_id = random.randint(0, len(self.connections) - 1)
+            target = self.connections[target_id]
 
         ret = await target.call(method_name, params)
         if ret == None:
-            del self.connections[target_id]
+            with self.connections_lock:
+                self.connections.remove(target)
             return None
         else:
             return ret
